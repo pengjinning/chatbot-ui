@@ -2,7 +2,6 @@
 
 import { ChatbotUIContext } from "@/context/context"
 import { CHAT_SETTING_LIMITS } from "@/lib/chat-setting-limits"
-import { LLM_LIST } from "@/lib/models/llm/llm-list"
 import { ChatSettings } from "@/types"
 import { IconInfoCircle } from "@tabler/icons-react"
 import { FC, useContext } from "react"
@@ -34,7 +33,7 @@ export const ChatSettingsForm: FC<ChatSettingsFormProps> = ({
   useAdvancedDropdown = true,
   showTooltip = true
 }) => {
-  const { profile, availableLocalModels } = useContext(ChatbotUIContext)
+  const { profile, models } = useContext(ChatbotUIContext)
 
   if (!profile) return null
 
@@ -44,8 +43,6 @@ export const ChatSettingsForm: FC<ChatSettingsFormProps> = ({
         <Label>Model</Label>
 
         <ModelSelect
-          hostedModelOptions={LLM_LIST}
-          localModelOptions={availableLocalModels}
           selectedModelId={chatSettings.model}
           onSelectModel={model => {
             onChangeChatSettings({ ...chatSettings, model })
@@ -100,12 +97,22 @@ const AdvancedContent: FC<AdvancedContentProps> = ({
   onChangeChatSettings,
   showTooltip
 }) => {
-  const { profile, selectedWorkspace } = useContext(ChatbotUIContext)
+  const { profile, selectedWorkspace, availableOpenRouterModels, models } =
+    useContext(ChatbotUIContext)
+
+  const isCustomModel = models.some(
+    model => model.model_id === chatSettings.model
+  )
+
+  function findOpenRouterModel(modelId: string) {
+    return availableOpenRouterModels.find(model => model.modelId === modelId)
+  }
 
   const MODEL_LIMITS = CHAT_SETTING_LIMITS[chatSettings.model] || {
     MIN_TEMPERATURE: 0,
     MAX_TEMPERATURE: 1,
-    MAX_CONTEXT_LENGTH: 4096
+    MAX_CONTEXT_LENGTH:
+      findOpenRouterModel(chatSettings.model)?.maxContext || 4096
   }
 
   return (
@@ -147,7 +154,12 @@ const AdvancedContent: FC<AdvancedContentProps> = ({
             })
           }}
           min={0}
-          max={MODEL_LIMITS.MAX_CONTEXT_LENGTH - 200} // 200 is a minimum buffer for token output
+          max={
+            isCustomModel
+              ? models.find(model => model.model_id === chatSettings.model)
+                  ?.context_length
+              : MODEL_LIMITS.MAX_CONTEXT_LENGTH
+          }
           step={1}
         />
       </div>
@@ -226,7 +238,9 @@ const AdvancedContent: FC<AdvancedContentProps> = ({
           </SelectTrigger>
 
           <SelectContent>
-            <SelectItem value="openai">OpenAI</SelectItem>
+            <SelectItem value="openai">
+              {profile?.use_azure_openai ? "Azure OpenAI" : "OpenAI"}
+            </SelectItem>
 
             {window.location.hostname === "localhost" && (
               <SelectItem value="local">Local</SelectItem>

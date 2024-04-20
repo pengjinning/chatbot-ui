@@ -1,10 +1,8 @@
-import { ChatbotUIContext } from "@/context/context"
-import { isModelLocked } from "@/lib/is-model-locked"
-import { LLM, LLMID } from "@/types"
-import { IconLock } from "@tabler/icons-react"
-import { FC, useContext } from "react"
-import { WithTooltip } from "../ui/with-tooltip"
+import { LLM } from "@/types"
+import { FC } from "react"
 import { ModelIcon } from "./model-icon"
+import { IconInfoCircle } from "@tabler/icons-react"
+import { WithTooltip } from "../ui/with-tooltip"
 
 interface ModelOptionProps {
   model: LLM
@@ -12,39 +10,40 @@ interface ModelOptionProps {
 }
 
 export const ModelOption: FC<ModelOptionProps> = ({ model, onSelect }) => {
-  const { profile } = useContext(ChatbotUIContext)
-
-  if (!profile) return null
-
-  const isLocked = isModelLocked(model.provider, profile)
-
-  const handleSelectModel = () => {
-    if (isLocked) return
-
-    onSelect()
-  }
-
   return (
-    <div
-      className="hover:bg-accent flex w-full cursor-pointer justify-start space-x-3 truncate rounded p-2 hover:opacity-50"
-      onClick={handleSelectModel}
-    >
-      <div className="flex items-center space-x-2">
-        {isLocked ? (
-          <WithTooltip
-            display={
+    <WithTooltip
+      display={
+        <div>
+          {model.provider !== "ollama" && model.pricing && (
+            <div className="space-y-1 text-sm">
               <div>
-                Save {model.provider} API key in profile settings to unlock.
+                <span className="font-semibold">Input Cost:</span>{" "}
+                {model.pricing.inputCost} {model.pricing.currency} per{" "}
+                {model.pricing.unit}
               </div>
-            }
-            trigger={<IconLock className="mr-2" size={26} />}
-          />
-        ) : (
-          <ModelIcon modelId={model.modelId as LLMID} width={28} height={28} />
-        )}
-
-        <div className="text-sm font-semibold">{model.modelName}</div>
-      </div>
-    </div>
+              {model.pricing.outputCost && (
+                <div>
+                  <span className="font-semibold">Output Cost:</span>{" "}
+                  {model.pricing.outputCost} {model.pricing.currency} per{" "}
+                  {model.pricing.unit}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      }
+      side="bottom"
+      trigger={
+        <div
+          className="hover:bg-accent flex w-full cursor-pointer justify-start space-x-3 truncate rounded p-2 hover:opacity-50"
+          onClick={onSelect}
+        >
+          <div className="flex items-center space-x-2">
+            <ModelIcon provider={model.provider} width={28} height={28} />
+            <div className="text-sm font-semibold">{model.modelName}</div>
+          </div>
+        </div>
+      }
+    />
   )
 }

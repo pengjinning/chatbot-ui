@@ -6,7 +6,7 @@ import { COLLECTION_DESCRIPTION_MAX, COLLECTION_NAME_MAX } from "@/db/limits"
 import { TablesInsert } from "@/supabase/types"
 import { CollectionFile } from "@/types"
 import { FC, useContext, useState } from "react"
-import { CollectionFilePicker } from "./collection-file-picker"
+import { CollectionFileSelect } from "./collection-file-select"
 
 interface CreateCollectionProps {
   isOpen: boolean
@@ -20,6 +20,7 @@ export const CreateCollection: FC<CreateCollectionProps> = ({
   const { profile, selectedWorkspace } = useContext(ChatbotUIContext)
 
   const [name, setName] = useState("")
+  const [isTyping, setIsTyping] = useState(false)
   const [description, setDescription] = useState("")
   const [selectedCollectionFiles, setSelectedCollectionFiles] = useState<
     CollectionFile[]
@@ -30,6 +31,7 @@ export const CreateCollection: FC<CreateCollectionProps> = ({
       const isFileAlreadySelected = prevState.find(
         selectedFile => selectedFile.id === file.id
       )
+
       if (isFileAlreadySelected) {
         return prevState.filter(selectedFile => selectedFile.id !== file.id)
       } else {
@@ -57,13 +59,14 @@ export const CreateCollection: FC<CreateCollectionProps> = ({
         } as TablesInsert<"collections">
       }
       isOpen={isOpen}
+      isTyping={isTyping}
       onOpenChange={onOpenChange}
       renderInputs={() => (
         <>
           <div className="space-y-1">
             <Label>Files</Label>
 
-            <CollectionFilePicker
+            <CollectionFileSelect
               selectedCollectionFiles={selectedCollectionFiles}
               onCollectionFileSelect={handleFileSelect}
             />

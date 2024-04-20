@@ -3,7 +3,7 @@ import { ChatSettingsForm } from "@/components/ui/chat-settings-form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ChatbotUIContext } from "@/context/context"
-import { PRESET_DESCRIPTION_MAX, PRESET_NAME_MAX } from "@/db/limits"
+import { PRESET_NAME_MAX } from "@/db/limits"
 import { TablesInsert } from "@/supabase/types"
 import { FC, useContext, useState } from "react"
 
@@ -19,6 +19,7 @@ export const CreatePreset: FC<CreatePresetProps> = ({
   const { profile, selectedWorkspace } = useContext(ChatbotUIContext)
 
   const [name, setName] = useState("")
+  const [isTyping, setIsTyping] = useState(false)
   const [description, setDescription] = useState("")
   const [presetChatSettings, setPresetChatSettings] = useState({
     model: selectedWorkspace?.default_model,
@@ -38,6 +39,7 @@ export const CreatePreset: FC<CreatePresetProps> = ({
     <SidebarCreateItem
       contentType="presets"
       isOpen={isOpen}
+      isTyping={isTyping}
       onOpenChange={onOpenChange}
       createState={
         {
@@ -64,17 +66,6 @@ export const CreatePreset: FC<CreatePresetProps> = ({
               value={name}
               onChange={e => setName(e.target.value)}
               maxLength={PRESET_NAME_MAX}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label>Description (optional)</Label>
-
-            <Input
-              placeholder="Preset description..."
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              maxLength={PRESET_DESCRIPTION_MAX}
             />
           </div>
 

@@ -6,7 +6,7 @@ import {
   processPdf,
   processTxt
 } from "@/lib/retrieval/processing"
-import { checkApiKey, getServerProfile } from "@/lib/server-chat-helpers"
+import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
 import { Database } from "@/supabase/types"
 import { FileItemChunk } from "@/types"
 import { createClient } from "@supabase/supabase-js"
@@ -24,16 +24,51 @@ export async function POST(req: Request) {
 
     const formData = await req.formData()
 
-    const file = formData.get("file") as File
     const file_id = formData.get("file_id") as string
     const embeddingsProvider = formData.get("embeddingsProvider") as string
 
+    const { data: fileMetadata, error: metadataError } = await supabaseAdmin
+      .from("files")
+      .select("*")
+      .eq("id", file_id)
+      .single()
+
+    if (metadataError) {
+      throw new Error(
+        `Failed to retrieve file metadata: ${metadataError.message}`
+      )
+    }
+
+    if (!fileMetadata) {
+      throw new Error("File not found")
+    }
+
+    if (fileMetadata.user_id !== profile.user_id) {
+      throw new Error("Unauthorized")
+    }
+
+    const { data: file, error: fileError } = await supabaseAdmin.storage
+      .from("files")
+      .download(fileMetadata.file_path)
+
+    if (fileError)
+      throw new Error(`Failed to retrieve file: ${fileError.message}`)
+
     const fileBuffer = Buffer.from(await file.arrayBuffer())
     const blob = new Blob([fileBuffer])
-    const fileExtension = file.name.split(".").pop()?.toLowerCase()
+    const fileExtension = fileMetadata.name.split(".").pop()?.toLowerCase()
 
     if (embeddingsProvider === "openai") {
-      checkApiKey(profile.openai_api_key, "OpenAI")
+      try {
+        if (profile.use_azure_openai) {
+          checkApiKey(profile.azure_openai_api_key, "Azure OpenAI")
+        } else {
+          checkApiKey(profile.openai_api_key, "OpenAI")
+        }
+      } catch (error: any) {
+        error.message = error.message + ", make sure it is configured or else use local embeddings"
+        throw(error)
+      }        
     }
 
     let chunks: FileItemChunk[] = []
@@ -62,14 +97,24 @@ export async function POST(req: Request) {
 
     let embeddings: any = []
 
-    if (embeddingsProvider === "openai") {
-      const openai = new OpenAI({
+    let openai
+    if (profile.use_azure_openai) {
+      openai = new OpenAI({
+        apiKey: profile.azure_openai_api_key || "",
+        baseURL: `${profile.azure_openai_endpoint}/openai/deployments/${profile.azure_openai_embeddings_id}`,
+        defaultQuery: { "api-version": "2023-12-01-preview" },
+        defaultHeaders: { "api-key": profile.azure_openai_api_key }
+      })
+    } else {
+      openai = new OpenAI({
         apiKey: profile.openai_api_key || "",
         organization: profile.openai_organization_id
       })
+    }
 
+    if (embeddingsProvider === "openai") {
       const response = await openai.embeddings.create({
-        model: "text-embedding-ada-002",
+        model: "text-embedding-3-small",
         input: chunks.map(chunk => chunk.content)
       })
 
@@ -82,6 +127,7 @@ export async function POST(req: Request) {
           return await generateLocalEmbedding(chunk.content)
         } catch (error) {
           console.error(`Error generating embedding for chunk: ${chunk}`, error)
+
           return null
         }
       })
@@ -117,8 +163,8 @@ export async function POST(req: Request) {
       status: 200
     })
   } catch (error: any) {
-    console.error(error)
-    const errorMessage = error.error?.message || "An unexpected error occurred"
+    console.log(`Error in retrieval/process: ${error.stack}`)
+    const errorMessage = error?.message || "An unexpected error occurred"
     const errorCode = error.status || 500
     return new Response(JSON.stringify({ message: errorMessage }), {
       status: errorCode

@@ -85,11 +85,13 @@ export const createTempMessages = (
   chatSettings: ChatSettings,
   b64Images: string[],
   isRegeneration: boolean,
-  setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
+  setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
+  selectedAssistant: Tables<"assistants"> | null
 ) => {
   let tempUserChatMessage: ChatMessage = {
     message: {
       chat_id: "",
+      assistant_id: null,
       content: messageContent,
       created_at: "",
       id: uuidv4(),
@@ -106,6 +108,7 @@ export const createTempMessages = (
   let tempAssistantChatMessage: ChatMessage = {
     message: {
       chat_id: "",
+      assistant_id: selectedAssistant?.id || null,
       content: "",
       created_at: "",
       id: uuidv4(),
@@ -151,7 +154,7 @@ export const handleLocalChat = async (
   setIsGenerating: React.Dispatch<React.SetStateAction<boolean>>,
   setFirstTokenReceived: React.Dispatch<React.SetStateAction<boolean>>,
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
-  setToolInUse: React.Dispatch<React.SetStateAction<"none" | "retrieval">>
+  setToolInUse: React.Dispatch<React.SetStateAction<string>>
 ) => {
   const formattedMessages = await buildFinalMessages(payload, profile, [])
 
@@ -196,7 +199,7 @@ export const handleHostedChat = async (
   setIsGenerating: React.Dispatch<React.SetStateAction<boolean>>,
   setFirstTokenReceived: React.Dispatch<React.SetStateAction<boolean>>,
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
-  setToolInUse: React.Dispatch<React.SetStateAction<"none" | "retrieval">>
+  setToolInUse: React.Dispatch<React.SetStateAction<string>>
 ) => {
   const provider =
     modelData.provider === "openai" && profile.use_azure_openai
@@ -215,12 +218,18 @@ export const handleHostedChat = async (
     formattedMessages = await buildFinalMessages(payload, profile, chatImages)
   }
 
+  const apiEndpoint =
+    provider === "custom" ? "/api/chat/custom" : `/api/chat/${provider}`
+
+  const requestBody = {
+    chatSettings: payload.chatSettings,
+    messages: formattedMessages,
+    customModelId: provider === "custom" ? modelData.hostedId : ""
+  }
+
   const response = await fetchChatResponse(
-    `/api/chat/${provider}`,
-    {
-      chatSettings: payload.chatSettings,
-      messages: formattedMessages
-    },
+    apiEndpoint,
+    requestBody,
     true,
     newAbortController,
     setIsGenerating,
@@ -279,46 +288,62 @@ export const processResponse = async (
   controller: AbortController,
   setFirstTokenReceived: React.Dispatch<React.SetStateAction<boolean>>,
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
-  setToolInUse: React.Dispatch<React.SetStateAction<"none" | "retrieval">>
+  setToolInUse: React.Dispatch<React.SetStateAction<string>>
 ) => {
   let fullText = ""
   let contentToAdd = ""
 
-  await consumeReadableStream(
-    response.body,
-    (chunk: any) => {
-      setFirstTokenReceived(true)
-      setToolInUse("none")
+  if (response.body) {
+    await consumeReadableStream(
+      response.body,
+      chunk => {
+        setFirstTokenReceived(true)
+        setToolInUse("none")
 
-      try {
-        contentToAdd = isHosted ? chunk : JSON.parse(chunk).message.content
-        fullText += contentToAdd
-      } catch (error) {
-        console.error("Error parsing JSON:", error)
-      }
+        try {
+          contentToAdd = isHosted
+            ? chunk
+            : // Ollama's streaming endpoint returns new-line separated JSON
+              // objects. A chunk may have more than one of these objects, so we
+              // need to split the chunk by new-lines and handle each one
+              // separately.
+              chunk
+                .trimEnd()
+                .split("\n")
+                .reduce(
+                  (acc, line) => acc + JSON.parse(line).message.content,
+                  ""
+                )
+          fullText += contentToAdd
+        } catch (error) {
+          console.error("Error parsing JSON:", error)
+        }
 
-      setChatMessages(prev =>
-        prev.map(chatMessage => {
-          if (chatMessage.message.id === lastChatMessage.message.id) {
-            const updatedChatMessage: ChatMessage = {
-              message: {
-                ...chatMessage.message,
-                content: chatMessage.message.content + contentToAdd
-              },
-              fileItems: chatMessage.fileItems
+        setChatMessages(prev =>
+          prev.map(chatMessage => {
+            if (chatMessage.message.id === lastChatMessage.message.id) {
+              const updatedChatMessage: ChatMessage = {
+                message: {
+                  ...chatMessage.message,
+                  content: fullText
+                },
+                fileItems: chatMessage.fileItems
+              }
+
+              return updatedChatMessage
             }
 
-            return updatedChatMessage
-          }
+            return chatMessage
+          })
+        )
+      },
+      controller.signal
+    )
 
-          return chatMessage
-        })
-      )
-    },
-    controller.signal
-  )
-
-  return fullText
+    return fullText
+  } else {
+    throw new Error("Response body is null")
+  }
 }
 
 export const handleCreateChat = async (
@@ -376,10 +401,12 @@ export const handleCreateMessages = async (
   setChatFileItems: React.Dispatch<
     React.SetStateAction<Tables<"file_items">[]>
   >,
-  setChatImages: React.Dispatch<React.SetStateAction<MessageImage[]>>
+  setChatImages: React.Dispatch<React.SetStateAction<MessageImage[]>>,
+  selectedAssistant: Tables<"assistants"> | null
 ) => {
   const finalUserMessage: TablesInsert<"messages"> = {
     chat_id: currentChat.id,
+    assistant_id: null,
     user_id: profile.user_id,
     content: messageContent,
     model: modelData.modelId,
@@ -390,6 +417,7 @@ export const handleCreateMessages = async (
 
   const finalAssistantMessage: TablesInsert<"messages"> = {
     chat_id: currentChat.id,
+    assistant_id: selectedAssistant?.id || null,
     user_id: profile.user_id,
     content: generatedText,
     model: modelData.modelId,
@@ -439,9 +467,10 @@ export const handleCreateMessages = async (
 
     setChatImages(prevImages => [
       ...prevImages,
-      ...newMessageImages.map(obj => ({
+      ...newMessageImages.map((obj, index) => ({
         ...obj,
-        messageId: createdMessages[0].id
+        messageId: createdMessages[0].id,
+        path: paths[index]
       }))
     ])
 
